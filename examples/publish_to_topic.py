@@ -1,3 +1,9 @@
+import sys
+import os
+
+# add parent directory to sys.path to allow imports from the root of the project
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tibems import (
     DestinationType,
     JmsPropertyType, 
@@ -37,8 +43,8 @@ if __name__ == '__main__':
                 ]
             ) as message:
                 # publish message to topic
-                publish_message(producer, message=message)
-                print("Successfully published a message to EMS topic")
+                message_id, _ = publish_message(producer, message=message)
+                print(f"Successfully published a message to EMS topic, message ID: {message_id}")
             
             # continue using a session to publish more messages
             # create more destinations, publishers, messages, if needed

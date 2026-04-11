@@ -42,12 +42,19 @@ if __name__ == '__main__':
                     JMS_Property(name="custom.prop", value="tmp.q", type=JmsPropertyType.String),
                     JMS_Property(name="custom.boolean.prop", value=False, type=JmsPropertyType.Boolean),
                     JMS_Property(name="custom.int.prop", value=1, type=JmsPropertyType.Integer),
+                    JMS_Property(name="custom.long.prop", value=1_000_000, type=JmsPropertyType.Long),
+                    JMS_Property(name="custom.double.prop", value=1_000_000.123, type=JmsPropertyType.Double),
                     JMS_Property(name="custom.float.prop", value=1.05, type=JmsPropertyType.Float)
                 ]
             ) as message:
+
+                # publish message to queue, no response expected
+                message_id, _ = publish_message(producer, message=message)
+                print(f"Successfully published a message to EMS queue with ID: {message_id}")
+
                 # publish message to queue, await a response on tmp queue
-                reply = publish_message(producer, message=message, expect_reply=True, session=session, reply_timeout=5000)
-                print("Successfully published a message to EMS queue")
+                message_id, reply = publish_message(producer, message=message, expect_reply=True, session=session, reply_timeout=5000)
+                print(f"Successfully published a message to EMS queue with ID: {message_id}")
                 if reply:
                     print(f"Reply received: {reply.body}")
                     for prop in reply.properties:
@@ -68,5 +75,5 @@ if __name__ == '__main__':
                     JMS_Property(name="custom.float.prop", value=1.05, type=JmsPropertyType.Float)
                 ]
             ) as message:
-                publish_message(producer, message=message)
-                print("Successfully published a message to EMS topic")
+                message_id, _ = publish_message(producer, message=message)
+                print(f"Successfully published a message to EMS topic with ID: {message_id}")

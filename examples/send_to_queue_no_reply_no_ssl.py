@@ -1,3 +1,9 @@
+import sys
+import os
+
+# add parent directory to sys.path to allow imports from the root of the project
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tibems import (
     JmsPropertyType, 
     JMS_Property, 
@@ -35,5 +41,5 @@ if __name__ == '__main__':
                 ]
             ) as message:
                 # publish message to queue, await a response on tmp queue
-                publish_message(producer, message=message)
-                print("Successfully published a message to EMS queue")
+                message_id, _ = publish_message(producer, message=message)
+                print(f"Successfully published a message to EMS queue, message ID: {message_id}")

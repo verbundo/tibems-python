@@ -188,6 +188,44 @@ with tibems_connection(...) as connection:
                 # msg.acknowledge()  # only needed when using CLIENT_ACK mode
 ```
 
+### Consume from a Topic
+
+```python
+import signal
+from tibems import (
+    AckMode, DestinationType,
+    tibems_connection, tibems_session,
+    create_destination, create_consumer,
+)
+
+with tibems_connection(..., start_connection=True) as connection:
+    with tibems_session(connection=connection) as session:
+        topic = create_destination(name="my.topic", type=DestinationType.Topic)
+
+        with create_consumer(session, topic, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
+            signal.signal(signal.SIGINT, lambda *_: consumer.stop())
+
+            for msg in consumer:
+                print(f"Received from topic: {msg.body}")
+```
+
+### Filter Messages with a Selector
+
+Pass a JMS selector (SQL-92 syntax) to `create_consumer` to receive only matching messages. Non-matching messages remain on the destination for other consumers.
+
+```python
+with tibems_connection(..., start_connection=True) as connection:
+    with tibems_session(connection=connection) as session:
+        queue = create_destination(name="my.queue")
+
+        selector = "region = 'EU' AND priority > 3"
+        with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK, selector=selector) as consumer:
+            signal.signal(signal.SIGINT, lambda *_: consumer.stop())
+
+            for msg in consumer:
+                print(f"Received: {msg.body}")
+```
+
 ### Consume Messages with CLIENT_ACK
 
 When using `CLIENT_ACK`, messages are **not** automatically acknowledged. You must call `msg.acknowledge()` to confirm processing — otherwise the broker may redeliver them:
@@ -296,3 +334,21 @@ For SSL connections (`ssl://` URL):
 - `server_cert` — path to the CA certificate for server verification
 - `client_cert` — path to client identity in `.p12` format (optional, for mutual TLS)
 - Set `verify_server_cert=False` to skip host verification (disables both `SetVerifyHost` and `SetVerifyHostName`)
+
+---
+
+## Examples
+
+Runnable scripts in the [`examples/`](examples/) directory:
+
+| File | Description |
+|---|---|
+| [`send_to_queue_no_reply_no_ssl.py`](examples/send_to_queue_no_reply_no_ssl.py) | Publish to a queue over TCP, no reply expected |
+| [`send_to_queue_no_reply_use_ssl.py`](examples/send_to_queue_no_reply_use_ssl.py) | Publish to a queue over SSL, no reply expected |
+| [`send_to_queue_await_reply.py`](examples/send_to_queue_await_reply.py) | Publish to a queue and block for a reply (request/reply producer side) |
+| [`publish_to_topic.py`](examples/publish_to_topic.py) | Publish to a topic over TCP |
+| [`receive_from_queue.py`](examples/receive_from_queue.py) | Consume messages from a queue |
+| [`receive_from_topic.py`](examples/receive_from_topic.py) | Subscribe to a topic and consume messages |
+| [`receive_from_queue_send_reply.py`](examples/receive_from_queue_send_reply.py) | Consume messages and send a correlated reply to `JMSReplyTo` (request/reply responder side) |
+| [`receive_from_queue_client_ack.py`](examples/receive_from_queue_client_ack.py) | Consume with `CLIENT_ACK` — manually acknowledge after processing |
+| [`receive_from_queue_with_selector.py`](examples/receive_from_queue_with_selector.py) | Consume with a JMS selector to filter messages by property values |

@@ -1,0 +1,13 @@
+.venv
+venv
+.env
+tibems/lib/lib*
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.env
+certs
+CLAUDE.md
+.claude

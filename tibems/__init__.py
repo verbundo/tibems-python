@@ -12,6 +12,8 @@ __all__ = [
     create_producer,
     publish_message,
     create_consumer,
+    create_async_consumer,
     ReceivedMessage,
     ReplyTo,
+    AsyncTibEMSConsumer,
 ]

@@ -23,7 +23,10 @@ export LD_LIBRARY_PATH=$PWD/tibems/lib:$LD_LIBRARY_PATH
 
 ## Configuration
 
-Set environment variables (via `.env` file or shell exports):
+No configuration is needed, it is ready to be used
+
+
+Alternatively, set environment variables (via `.env` file or shell exports):
 ```
 TIBEMS_URL=ssl://host:7243    # or tcp://host:7222
 TIBEMS_USER=username
@@ -261,6 +264,36 @@ with tibems_connection(...) as connection:
 
 > **Note:** In `CLIENT_ACK` mode, acknowledging one message also acknowledges **all** previously received messages on that session. If you need per-message acknowledgment, use a dedicated session per message or switch to `AUTO_ACK`.
 
+### Async Consumer
+
+`AsyncTibEMSConsumer` uses `tibemsMsgConsumer_SetMsgListener` so EMS pushes messages via a C callback on its own internal thread. No polling loop is needed — CPU usage is zero while the queue is idle.
+
+```python
+import asyncio
+import signal
+from tibems import (
+    AckMode,
+    tibems_connection, tibems_session,
+    create_destination, create_async_consumer,
+)
+
+async def main():
+    with tibems_connection(..., start_connection=True) as connection:
+        with tibems_session(connection=connection) as session:
+            queue = create_destination(name="my.queue")
+
+            async with create_async_consumer(session, queue, AckMode.TIBEMS_AUTO_ACK) as consumer:
+                loop = asyncio.get_running_loop()
+                loop.add_signal_handler(signal.SIGINT, consumer.stop)
+
+                async for msg in consumer:
+                    print(f"Received: {msg.body}")
+
+asyncio.run(main())
+```
+
+> **Note:** `loop.add_signal_handler` requires Unix. On Windows use `signal.signal(signal.SIGINT, lambda *_: consumer.stop())` instead.
+
 ---
 
 ## API Reference
@@ -273,6 +306,7 @@ with tibems_connection(...) as connection:
 | `tibems_session(connection, transacted, ack_mode)` | Creates and closes an EMS session. |
 | `tibems_message(message_text, jms_props=[], correlation_id=None)` | Creates and destroys a text message with optional JMS properties. |
 | `create_consumer(session, destination, ack_mode, selector=None, no_local=False)` | Returns a `TibEMSConsumer` that is iterable (`for msg in consumer`). |
+| `create_async_consumer(session, destination, ack_mode)` | Returns an `AsyncTibEMSConsumer` (async context manager, async iterable). |
 
 ### Core Functions
 
@@ -307,6 +341,14 @@ Each message yielded from the consumer has:
 | Method | Description |
 |---|---|
 | `stop()` | Signal the consumer to stop after the current poll returns. Use with `signal.signal(signal.SIGINT, ...)` for graceful shutdown. |
+
+### AsyncTibEMSConsumer
+
+Async context manager (`async with`) and async iterator (`async for`). Uses `tibemsMsgConsumer_SetMsgListener` — no polling, push-based delivery.
+
+| Method | Description |
+|---|---|
+| `stop()` | Signal the async iterator to stop. Safe to call from any thread or signal handler. |
 
 ---
 
@@ -360,3 +402,4 @@ Runnable scripts in the [`examples/`](examples/) directory:
 | [`receive_from_queue_send_reply.py`](examples/receive_from_queue_send_reply.py) | Consume messages and send a correlated reply to `JMSReplyTo` (request/reply responder side) |
 | [`receive_from_queue_client_ack.py`](examples/receive_from_queue_client_ack.py) | Consume with `CLIENT_ACK` — manually acknowledge after processing |
 | [`receive_from_queue_with_selector.py`](examples/receive_from_queue_with_selector.py) | Consume with a JMS selector to filter messages by property values |
+| [`receive_from_queue_async.py`](examples/receive_from_queue_async.py) | Async consumer using `SetMsgListener` callback — push-based, no polling |

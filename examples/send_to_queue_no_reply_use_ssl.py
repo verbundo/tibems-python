@@ -45,6 +45,6 @@ if __name__ == '__main__':
                     JMS_Property(name="custom.float.prop", value=1.05, type=JmsPropertyType.Float)
                 ]
             ) as message:
-                # publish message to queue, await a response on tmp queue
+                # publish message to queue, no reply expected
                 message_id, _ = publish_message(producer, message=message)
                 print(f"Successfully published a message to EMS queue, message ID: {message_id}")

@@ -1,23 +1,41 @@
 import os
-from tibems import JmsPropertyType, JMS_Property, AckMode, DestinationTye, tibems_connection, tibems_session, tibems_message, create_destination, create_producer, publish_message
+from tibems import (
+    JmsPropertyType, 
+    JMS_Property, 
+    AckMode, 
+    DestinationType, 
+    tibems_connection, 
+    tibems_session, 
+    tibems_message, 
+    create_destination, 
+    create_producer, 
+    publish_message
+)
 from utils import load_dotenv
 
 if __name__ == '__main__':
+    # load env vars from .env file
     load_dotenv()
 
+    # create a connection, use env vars to connect to EMS
     with tibems_connection(
         url=os.getenv("TIBEMS_URL"),
         username=os.getenv("TIBEMS_USER"),
         password=os.getenv("TIBEMS_PASSWORD"),
         start_connection=True,
-        server_cert="certs/DekaBank_root_CA.pem",
+        server_cert="certs/root_CA.pem",
         verify_server_cert=True
     ) as connection:
-        with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
 
-            # publish message to queue
-            queue = create_destination(name="tmp.q", type=DestinationTye.Queue)
+        # create a session with default parameters (non-transacted, auto-acknowledge)
+        with tibems_session(connection=connection) as session:
+
+            # create a queue destination and a producer for that destination
+            # 'type=DestinationType.Queue' is optional here, as 'Queue' is the default destination type
+            queue = create_destination(name="tmp.q", type=DestinationType.Queue)
             producer = create_producer(session, queue)
+
+            # create a message with some custom JMS properties
             with tibems_message(
                 message_text="Test message",
                 jms_props=[
@@ -27,6 +45,7 @@ if __name__ == '__main__':
                     JMS_Property(name="custom.float.prop", value=1.05, type=JmsPropertyType.Float)
                 ]
             ) as message:
+                # publish message to queue, await a response on tmp queue
                 reply = publish_message(producer, message=message, expect_reply=True, session=session, reply_timeout=5000)
                 print("Successfully published a message to EMS queue")
                 if reply:
@@ -34,8 +53,11 @@ if __name__ == '__main__':
                     for prop in reply.properties:
                         print(f"  - {prop['name']} ({prop['type']}): {prop['value']}")
 
+            # continue using a session to publish more messages
+
             # publish message to topic
-            topic = create_destination(name="t.test", type=DestinationTye.Topic)
+            # 'type=DestinationType.Topic' is required here, as the default destination type is 'Queue'
+            topic = create_destination(name="t.test", type=DestinationType.Topic)
             producer = create_producer(session, topic)
             with tibems_message(
                 message_text="Test message",

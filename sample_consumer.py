@@ -1,6 +1,6 @@
 import os
 import signal
-from tibems import AckMode, DestinationTye, tibems_connection, tibems_session, create_destination, create_consumer, create_producer, tibems_message, publish_message
+from tibems import AckMode, DestinationType, tibems_connection, tibems_session, create_destination, create_consumer, create_producer, tibems_message, publish_message
 from utils import load_dotenv
 
 if __name__ == '__main__':
@@ -11,13 +11,13 @@ if __name__ == '__main__':
         username=os.getenv("TIBEMS_USER"), 
         password=os.getenv("TIBEMS_PASSWORD"),
         start_connection=True,
-        server_cert="certs/DekaBank_root_CA.pem",
+        server_cert="certs/root_CA.pem",
         verify_server_cert=True
     ) as connection:
         with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
 
             # publish message to queue
-            queue = create_destination(name="tmp.q", type=DestinationTye.Queue)
+            queue = create_destination(name="tmp.q", type=DestinationType.Queue)
             with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
                 signal.signal(signal.SIGINT, lambda *_: consumer.stop())
                 for msg in consumer:

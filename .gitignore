@@ -11,3 +11,4 @@ __pycache__
 certs
 CLAUDE.md
 .claude
+.qwen

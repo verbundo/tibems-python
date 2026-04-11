@@ -4,7 +4,7 @@ __all__ = [
     JmsPropertyType,
     JMS_Property,
     AckMode,
-    DestinationTye,
+    DestinationType,
     tibems_connection,
     tibems_session,
     tibems_message,

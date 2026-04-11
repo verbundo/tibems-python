@@ -1,9 +1,11 @@
+# Author: Vadym Korol <vadym.korol@verbundo.com>
+# License: MIT (see LICENSE in the project root)
+
 import os
 from tibems import (
-    JmsPropertyType, 
-    JMS_Property, 
-    AckMode, 
-    DestinationType, 
+    JmsPropertyType,
+    JMS_Property,
+    DestinationType,
     tibems_connection, 
     tibems_session, 
     tibems_message, 

@@ -1,3 +1,11 @@
+# Author: Vadym Korol <vadym.korol@verbundo.com>
+# License: MIT (see LICENSE in the project root)
+#
+# Python wrapper for the TIBCO Enterprise Message Service (EMS) C API.
+# Uses ctypes to call into the native libtibems.so shared library, exposing
+# Pythonic context managers for connections, sessions, messages, producers,
+# and consumers.
+
 from contextlib import contextmanager
 import ctypes
 from ctypes import c_char_p, c_void_p, byref, POINTER, c_bool, c_float, c_byte, c_short, c_double, c_long, c_int

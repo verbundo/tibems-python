@@ -2,6 +2,14 @@
 
 A Python wrapper for the **TIBCO Enterprise Message Service (EMS)** C API. It uses `ctypes` to call the native `libtibems.so` shared library, exposing Pythonic context managers for connections, sessions, messages, producers, and consumers.
 
+## Author
+
+**Vadym Korol** — [vadym.korol@verbundo.com](mailto:vadym.korol@verbundo.com)
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Prerequisites
 
 Place the TIBCO EMS shared libraries in `tibems/lib/`:

@@ -1,3 +1,10 @@
+# Author: Vadym Korol <vadym.korol@verbundo.com>
+# License: MIT (see LICENSE in the project root)
+#
+# ctypes Structure and Union definitions mirroring the EMS C API structs
+# (tibemsMsgField, tibemsData). Used to enumerate and read typed JMS
+# properties from received messages.
+
 import ctypes
 from ctypes import c_void_p, c_int, c_char_p, byref, POINTER, Structure, Union, c_byte, c_longlong, c_float, c_double, c_ushort
 

@@ -1,3 +1,6 @@
+# Author: Vadym Korol <vadym.korol@verbundo.com>
+# License: MIT (see LICENSE in the project root)
+
 import sys
 import os
 import signal

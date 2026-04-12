@@ -109,7 +109,7 @@ with tibems_connection(
     # 2. create a session specifying whether it should be transacted and specifying an aknowledgement mode
     with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
         # 3. create a destination and a producer
-        queue = create_destination(name="my.queue", type=DestinationType.Queue)
+        queue = create_destination(name="my.queue", dest_type=DestinationType.Queue)
         producer = create_producer(session, queue)
 
         # 4. create a message:
@@ -170,7 +170,7 @@ Send a message and wait for a reply using a temporary queue:
 
 with tibems_connection(...) as connection:
     with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
-        queue = create_destination(name="request.queue", type=DestinationType.Queue)
+        queue = create_destination(name="request.queue", dest_type=DestinationType.Queue)
         producer = create_producer(session, queue)
 
         with tibems_message(message_body="Ping") as message:
@@ -197,7 +197,7 @@ Send a message and wait for a reply using a specific reply queue:
 
 with tibems_connection(...) as connection:
     with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
-        queue = create_destination(name="request.queue", type=DestinationType.Queue)
+        queue = create_destination(name="request.queue", dest_type=DestinationType.Queue)
         producer = create_producer(session, queue)
 
         with tibems_message(message_body="Ping") as message:
@@ -224,7 +224,7 @@ with tibems_connection(...) as connection:
 ```python
 with tibems_connection(...) as connection:
     with tibems_session(connection=connection) as session:
-        topic = create_destination(name="my.topic", type=DestinationType.Topic)
+        topic = create_destination(name="my.topic", dest_type=DestinationType.Topic)
         producer = create_producer(session, topic)
 
         with tibems_message(message_body="Hello, Topic!") as message:
@@ -243,7 +243,7 @@ from tibems import (
 
 with tibems_connection(...) as connection:
     with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
-        queue = create_destination(name="my.queue", type=DestinationType.Queue)
+        queue = create_destination(name="my.queue", dest_type=DestinationType.Queue)
 
         with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
             # Graceful shutdown on Ctrl+C
@@ -280,7 +280,7 @@ from tibems import (
 
 with tibems_connection(..., start_connection=True) as connection:
     with tibems_session(connection=connection) as session:
-        topic = create_destination(name="my.topic", type=DestinationType.Topic)
+        topic = create_destination(name="my.topic", dest_type=DestinationType.Topic)
 
         with create_consumer(session, topic, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
             signal.signal(signal.SIGINT, lambda *_: consumer.stop())
@@ -313,7 +313,7 @@ When using `CLIENT_ACK`, messages are **not** automatically acknowledged. You mu
 ```python
 with tibems_connection(...) as connection:
     with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_CLIENT_ACK) as session:
-        queue = create_destination(name="my.queue", type=DestinationType.Queue)
+        queue = create_destination(name="my.queue", dest_type=DestinationType.Queue)
 
         with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_CLIENT_ACK) as consumer:
             signal.signal(signal.SIGINT, lambda *_: consumer.stop())
@@ -348,7 +348,7 @@ from tibems import (
 async def main():
     with tibems_connection(url="tcp://host:7222", username="user", password="pass") as connection:
         with tibems_session(connection=connection) as session:
-            queue = create_destination(name="my.queue", type=DestinationType.Queue)
+            queue = create_destination(name="my.queue", dest_type=DestinationType.Queue)
             producer = create_producer(session, queue)
 
             async def send(text, index):
@@ -419,7 +419,7 @@ asyncio.run(main())
 
 | Function | Description |
 |---|---|
-| `create_destination(name, type)` | Create a `Queue` or `Topic` destination. |
+| `create_destination(name, dest_type)` | Create a `Queue` or `Topic` destination. |
 | `create_producer(session, destination)` | Create a message producer for the given destination. |
 | `publish_message(producer, message, expect_reply=False, reply_destination=None, session=None, reply_timeout=None)` | Send a message synchronously. Optionally waits for a reply on a temporary queue. |
 | `async_publish_message(producer, message)` | Send a message asynchronously via `tibemsMsgProducer_AsyncSend`. Returns the JMSMessageID when the broker acknowledges the send. |

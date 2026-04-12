@@ -32,7 +32,7 @@ async def main():
         password='test_password',
     ) as connection:
         with tibems_session(connection=connection) as session:
-            queue = create_destination(name="tmp.q", type=DestinationType.Queue)
+            queue = create_destination(name="tmp.q", dest_type=DestinationType.Queue)
             producer = create_producer(session, queue)
 
             # Send three messages concurrently using AsyncSend.

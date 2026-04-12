@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
             # create a topic destination and a producer for that destination
             # 'type=DestinationType.Topic' is required here, as the default destination type is 'Queue'
-            topic = create_destination(name="t.test", type=DestinationType.Topic)
+            topic = create_destination(name="t.test", dest_type=DestinationType.Topic)
             producer = create_producer(session, topic)
 
             # create a message with some custom JMS properties

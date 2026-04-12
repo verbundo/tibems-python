@@ -191,42 +191,58 @@ class AsyncTibEMSConsumer:
             # Runs on an EMS internal C thread.
             # CFUNCTYPE delivers c_void_p args as plain Python ints (raw addresses).
             # Wrap back into c_void_p so ctypes treats them as full 64-bit pointers.
-            message = c_void_p(message)
-            # Extract all data now — the handle may be invalid after this returns.
-            body, body_bytes = _read_message_body(message)
-            properties = get_properties_with_types(ems_lib, message)
+            try:
+                message = c_void_p(message)
+                # Extract all data now — the handle may be invalid after this returns.
+                body, body_bytes = _read_message_body(message)
+                properties = get_properties_with_types(ems_lib, message)
 
-            msg_id_ptr = c_char_p()
-            ems_lib.tibemsMsg_GetMessageID(message, byref(msg_id_ptr))
-            message_id = msg_id_ptr.value.decode('utf-8') if msg_id_ptr.value else None
+                msg_id_ptr = c_char_p()
+                ems_lib.tibemsMsg_GetMessageID(message, byref(msg_id_ptr))
+                message_id = msg_id_ptr.value.decode('utf-8') if msg_id_ptr.value else None
 
-            reply_to = _get_reply_to(message)
-            if reply_to is not None:
-                properties.append({"name": "JMSReplyTo", "type": "STRING", "value": reply_to.name or "<temporary queue>"})
+                reply_to = _get_reply_to(message)
+                if reply_to is not None:
+                    properties.append({"name": "JMSReplyTo", "type": "STRING", "value": reply_to.name or "<temporary queue>"})
 
-            if self._ack_mode == AckMode.TIBEMS_CLIENT_ACK:
-                # Copy the message so its handle remains valid after this callback returns,
-                # allowing the caller to acknowledge it later from the async context.
-                msg_copy = c_void_p()
-                ems_lib.tibemsMsg_Copy(message, byref(msg_copy))
-                ack_fn = lambda: (ems_lib.tibemsMsg_Acknowledge(msg_copy), ems_lib.tibemsMsg_Destroy(msg_copy))
-            else:
-                ack_fn = lambda: None
+                if self._ack_mode == AckMode.TIBEMS_CLIENT_ACK:
+                    # Copy the message so its handle remains valid after this callback returns,
+                    # allowing the caller to acknowledge it later from the async context.
+                    msg_copy = c_void_p()
+                    ems_lib.tibemsMsg_Copy(message, byref(msg_copy))
+                    ack_fn = lambda: (ems_lib.tibemsMsg_Acknowledge(msg_copy), ems_lib.tibemsMsg_Destroy(msg_copy))
+                else:
+                    ack_fn = lambda: None
 
-            received = ReceivedMessage(
-                body=body, body_bytes=body_bytes, properties=properties,
-                ack_fn=ack_fn, reply_to=reply_to, message_id=message_id
-            )
-            self._loop.call_soon_threadsafe(self._msg_queue.put_nowait, received)
+                received = ReceivedMessage(
+                    body=body, body_bytes=body_bytes, properties=properties,
+                    ack_fn=ack_fn, reply_to=reply_to, message_id=message_id
+                )
+                self._loop.call_soon_threadsafe(self._msg_queue.put_nowait, received)
+            except Exception:
+                # Swallow all exceptions — letting them propagate into the EMS C thread
+                # would cause a segfault. The consumer will keep running; the lost
+                # message is silently discarded.
+                pass
 
         self._callback = _MsgListenerCallback(_on_message)
         ems_lib.tibemsMsgConsumer_SetMsgListener(self._consumer, self._callback, None)
         return self
 
     async def __aexit__(self, *_):
+        # Signal any pending __anext__ callers to stop waiting
+        self.stop()
         if self._consumer is not None:
             ems_lib.tibemsMsgConsumer_Close(self._consumer)
             self._consumer = None
+        # Drain the queue so any remaining references are released
+        if self._msg_queue is not None:
+            while not self._msg_queue.empty():
+                try:
+                    self._msg_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            self._msg_queue = None
 
     def stop(self):
         """Signal the async iterator to stop. Safe to call from any thread."""

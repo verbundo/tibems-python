@@ -32,7 +32,7 @@ async def main():
         password=os.getenv("TIBEMS_PASSWORD"),
     ) as connection:
         with tibems_session(connection=connection) as session:
-            queue = create_destination(name="tmp.q", type=DestinationType.Queue)
+            queue = create_destination(name="tmp.q", dest_type=DestinationType.Queue)
             producer = create_producer(session, queue)
 
             # Send five messages concurrently using AsyncSend.

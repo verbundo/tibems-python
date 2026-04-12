@@ -12,6 +12,7 @@ from ctypes import c_char_p, c_void_p, byref, POINTER, c_int
 from enum import Enum
 import os
 import platform
+from typing import Generator
 
 
 # Load the appropriate shared library based on the operating system
@@ -33,6 +34,34 @@ else:
 TIBEMS_OK = 0
 TIBEMS_FALSE = 0
 TIBEMS_TRUE = 1
+
+__all__ = [
+    "ems_lib",
+    "TIBEMS_OK",
+    "TIBEMS_FALSE",
+    "TIBEMS_TRUE",
+    "TIBEMS_SSL_ENCODING_AUTO",
+    "tibems_status",
+    "tibems_bool",
+    "AckMode",
+    "DestinationType",
+    "ProtocolType",
+    "tibems_connection",
+    "tibems_session",
+    "create_destination",
+    "ReplyTo",
+    "ReceivedMessage",
+    "get_ems_message",
+    "TibEMSConnectionError",
+    "TibEMSSessionError",
+    "TibEMSCreateDestinationError",
+    "TibEMSCreateProducerError",
+    "TibEMSCreateConsumerError",
+    "TibEMSCreateMessageError",
+    "TibEMSSetHeaderError",
+    "TibEMSPublishError",
+    "TibEMSConfigurationError",
+]
 
 class AckMode(Enum):
     TIBEMS_AUTO_ACK = 1
@@ -62,44 +91,103 @@ class ProtocolType(str, Enum):
 
 
 @contextmanager
-def tibems_connection(url: str, username: str, password: str, start_connection: bool=False, server_cert: str | None = None, client_cert: str | None = None, private_key: str | None = None, verify_server_cert: bool = True):
+def tibems_connection(
+    url: str,
+    username: str,
+    password: str,
+    start_connection: bool = False,
+    server_cert: str | None = None,
+    client_cert: str | None = None,
+    private_key: str | None = None,
+    verify_server_cert: bool = True,
+) -> "Generator[c_void_p, None, None]":
+    """Open a connection to the TIBCO EMS server.
+
+    Args:
+        url: Server URL (e.g. ``tcp://localhost:7222`` or ``ssl://...``).
+        username: JMS username.
+        password: JMS password.
+        start_connection: Whether to call ``tibemsConnection_Start`` immediately.
+        server_cert: Path to the server's trusted certificate (required for SSL
+            when ``verify_server_cert`` is ``True``).
+        client_cert: Path to the client certificate in PKCS#12 format.
+        private_key: Unused placeholder — the C API expects the key inside the
+            PKCS#12 file referenced by ``client_cert``.
+        verify_server_cert: Whether to verify the server's certificate chain.
+
+    Yields:
+        A ``c_void_p`` handle to the opened connection.
+
+    Raises:
+        TibEMSConfigurationError: If SSL is required but ``server_cert`` is missing.
+        TibEMSConnectionError: If the connection cannot be established.
+    """
     ems_lib.tibems_Open()
     use_ssl: bool = url.startswith("ssl:")
-    ssl_params = None
-    if use_ssl:
-        if not server_cert:
-            if verify_server_cert:
-                raise TibEMSConfigurationError("'server_cert' parameter must be specified for SSL connection")
-        ssl_params = ems_lib.tibemsSSLParams_Create()
-        if verify_server_cert:
-            # add server trusted certificate
-            ems_lib.tibemsSSLParams_AddTrustedCertFile(ssl_params, bytes(server_cert, "UTF-8"), TIBEMS_SSL_ENCODING_AUTO)
-        else:
-            ems_lib.tibemsSSLParams_SetVerifyHost(ssl_params, TIBEMS_FALSE)
-            ems_lib.tibemsSSLParams_SetVerifyHostName(ssl_params, TIBEMS_FALSE)
-        if client_cert:
-            # path to client cert in p12 format
-            ems_lib.tibemsSSLParams_SetIdentityFile(ssl_params, client_cert)
-    factory = ems_lib.tibemsConnectionFactory_Create()
-    if ssl_params:
-        ems_lib.tibemsConnectionFactory_SetSSLParams(factory, ssl_params)
-    ems_lib.tibemsConnectionFactory_SetServerURL(factory, bytes(url, "utf-8"))
-    connection = c_void_p()
-    res = ems_lib.tibemsConnectionFactory_CreateConnection(factory, byref(connection), bytes(username, "utf-8"), bytes(password, "utf-8"))
-    if res != TIBEMS_OK:
-        raise TibEMSConnectionError(res)
-    if start_connection:
-        ems_lib.tibemsConnection_Start(connection)
+    ssl_params: int | None = None
+    factory: int | None = None
+    connection_opened = False
+
     try:
+        if use_ssl:
+            if not server_cert:
+                if verify_server_cert:
+                    raise TibEMSConfigurationError("'server_cert' parameter must be specified for SSL connection")
+            ssl_params = ems_lib.tibemsSSLParams_Create()
+            if verify_server_cert:
+                # add server trusted certificate
+                ems_lib.tibemsSSLParams_AddTrustedCertFile(ssl_params, bytes(server_cert, "UTF-8"), TIBEMS_SSL_ENCODING_AUTO)
+            else:
+                ems_lib.tibemsSSLParams_SetVerifyHost(ssl_params, TIBEMS_FALSE)
+                ems_lib.tibemsSSLParams_SetVerifyHostName(ssl_params, TIBEMS_FALSE)
+            if client_cert:
+                # path to client cert in p12 format
+                ems_lib.tibemsSSLParams_SetIdentityFile(ssl_params, client_cert)
+
+        factory = ems_lib.tibemsConnectionFactory_Create()
+        if factory is None:
+            raise TibEMSConnectionError(-1)
+
+        if ssl_params:
+            ems_lib.tibemsConnectionFactory_SetSSLParams(factory, ssl_params)
+        ems_lib.tibemsConnectionFactory_SetServerURL(factory, bytes(url, "utf-8"))
+
+        connection = c_void_p()
+        res = ems_lib.tibemsConnectionFactory_CreateConnection(factory, byref(connection), bytes(username, "utf-8"), bytes(password, "utf-8"))
+        if res != TIBEMS_OK:
+            raise TibEMSConnectionError(res)
+        connection_opened = True
+
+        if start_connection:
+            ems_lib.tibemsConnection_Start(connection)
+
         yield connection
     finally:
-        if ssl_params:
+        if connection_opened:
+            ems_lib.tibemsConnection_Close(connection)
+        if ssl_params is not None:
             ems_lib.tibemsSSLParams_Destroy(ssl_params)
-        ems_lib.tibemsConnection_Close(connection)
-        ems_lib.tibems_Close()
+        if factory is not None:
+            ems_lib.tibemsConnectionFactory_Destroy(factory)
+        if connection_opened:
+            ems_lib.tibems_Close()
 
 @contextmanager
-def tibems_session(connection, transacted: bool = False, ack_mode: AckMode = AckMode.TIBEMS_AUTO_ACK):
+def tibems_session(connection: c_void_p, transacted: bool = False, ack_mode: AckMode = AckMode.TIBEMS_AUTO_ACK) -> Generator[c_void_p, None, None]:
+    """Create a JMS session on an existing connection.
+
+    Args:
+        connection: A ``c_void_p`` handle from :func:`tibems_connection`.
+        transacted: Whether the session should be transacted.
+        ack_mode: The acknowledgment mode (``AUTO_ACK``, ``CLIENT_ACK``, or
+            ``DUPS_OK_ACK``).
+
+    Yields:
+        A ``c_void_p`` handle to the created session.
+
+    Raises:
+        TibEMSSessionError: If the session cannot be created.
+    """
     session = c_void_p()
     res = ems_lib.tibemsConnection_CreateSession(connection, byref(session), transacted, ack_mode.value)
     if res != TIBEMS_OK:
@@ -109,9 +197,21 @@ def tibems_session(connection, transacted: bool = False, ack_mode: AckMode = Ack
     finally:
         ems_lib.tibemsSession_Close(session)
 
-def create_destination(name: str, type: int=DestinationType.Queue):
+def create_destination(name: str, dest_type: DestinationType = DestinationType.Queue) -> c_void_p:
+    """Create a JMS destination (queue or topic).
+
+    Args:
+        name: The destination name.
+        dest_type: Either ``DestinationType.Queue`` or ``DestinationType.Topic``.
+
+    Returns:
+        A ``c_void_p`` handle to the created destination.
+
+    Raises:
+        TibEMSCreateDestinationError: If the destination cannot be created.
+    """
     destination = c_void_p()
-    if type == DestinationType.Queue:
+    if dest_type == DestinationType.Queue:
         res = ems_lib.tibemsQueue_Create(byref(destination), bytes(name, "utf-8"))
     else:
         res = ems_lib.tibemsTopic_Create(byref(destination), bytes(name, "utf-8"))

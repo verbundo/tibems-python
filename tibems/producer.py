@@ -93,6 +93,9 @@ def publish_message(producer, message, expect_reply: bool = False, reply_destina
         return (message_id, ReceivedMessage(body=body, properties=properties, ack_fn=lambda: None, reply_to=None, message_id=reply_id))
     finally:
         ems_lib.tibemsMsgConsumer_Close(consumer)
+        # Destroy the temporary queue if we created one
+        if reply_destination is None:
+            ems_lib.tibemsSession_DeleteTemporaryQueue(session, reply_dest)
 
 
 async def async_publish_message(producer, message) -> str:
@@ -136,20 +139,24 @@ async def async_publish_message(producer, message) -> str:
     return msg_id_ptr.value.decode('utf-8') if msg_id_ptr.value else None
 
 
-def queue_publish(ems_url: str, ems_username: str, ems_password: str, queue_name: str, message_txt: str, jms_props: list[JmsPropertyType] = []) -> str:
+def queue_publish(ems_url: str, ems_username: str, ems_password: str, queue_name: str, message_txt: str, jms_props: list[JMS_Property] | None = None) -> str:
+    if jms_props is None:
+        jms_props = []
     with tibems_connection(url=ems_url, username=ems_username, password=ems_password) as connection:
         with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
-            queue = create_destination(name=queue_name, type=DestinationType.Queue)
+            queue = create_destination(name=queue_name, dest_type=DestinationType.Queue)
             producer = create_producer(session, queue)
             with tibems_message(message_body=message_txt, jms_props=jms_props) as message:
                 message_id, _ = publish_message(producer, message=message)
     return message_id
 
 
-def topic_publish(ems_url: str, ems_username: str, ems_password: str, topic_name: str, message_txt: str, jms_props: list[JMS_Property] = []) -> str:
+def topic_publish(ems_url: str, ems_username: str, ems_password: str, topic_name: str, message_txt: str, jms_props: list[JMS_Property] | None = None) -> str:
+    if jms_props is None:
+        jms_props = []
     with tibems_connection(url=ems_url, username=ems_username, password=ems_password) as connection:
         with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
-            topic = create_destination(name=topic_name, type=DestinationType.Topic)
+            topic = create_destination(name=topic_name, dest_type=DestinationType.Topic)
             producer = create_producer(session, topic)
             with tibems_message(message_body=message_txt, jms_props=jms_props) as message:
                 message_id, _ = publish_message(producer, message=message)

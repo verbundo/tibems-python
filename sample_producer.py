@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
             # create a queue destination and a producer for that destination
             # 'type=DestinationType.Queue' is optional here, as 'Queue' is the default destination type
-            queue = create_destination(name="tmp.q", type=DestinationType.Queue)
+            queue = create_destination(name="tmp.q", dest_type=DestinationType.Queue)
             producer = create_producer(session, queue)
 
             # create a message with some custom JMS properties
@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
             # publish message to topic
             # 'type=DestinationType.Topic' is required here, as the default destination type is 'Queue'
-            topic = create_destination(name="t.test", type=DestinationType.Topic)
+            topic = create_destination(name="t.test", dest_type=DestinationType.Topic)
             producer = create_producer(session, topic)
             with tibems_message(
                 message_body="Test message",

@@ -28,7 +28,7 @@ if __name__ == '__main__':
         with tibems_session(connection=connection) as session:
 
             # 'type=DestinationType.Topic' is required here, as the default destination type is 'Queue'
-            topic = create_destination(name="t.test", type=DestinationType.Topic)
+            topic = create_destination(name="t.test", dest_type=DestinationType.Topic)
             with create_consumer(session, topic, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
                 # stop the consumer loop on Ctrl+C
                 signal.signal(signal.SIGINT, lambda *_: consumer.stop())

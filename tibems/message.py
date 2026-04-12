@@ -35,7 +35,9 @@ class JMS_Property:
         self.type = type
 
 
-def create_message(message_body: str | bytes, jms_props: list[JMS_Property] = [], correlation_id: str | None = None, session=None):
+def create_message(message_body: str | bytes, jms_props: list[JMS_Property] | None = None, correlation_id: str | None = None, session=None):
+    if jms_props is None:
+        jms_props = []
     message = c_void_p()
     if isinstance(message_body, bytes):
         if session is None:
@@ -79,7 +81,9 @@ def destroy_message(message):
 
 
 @contextmanager
-def tibems_message(message_body: str | bytes, jms_props: list[JMS_Property] = [], correlation_id: str | None = None, session=None):
+def tibems_message(message_body: str | bytes, jms_props: list[JMS_Property] | None = None, correlation_id: str | None = None, session=None):
+    if jms_props is None:
+        jms_props = []
     message = create_message(message_body=message_body, jms_props=jms_props, correlation_id=correlation_id, session=session)
     try:
         yield message

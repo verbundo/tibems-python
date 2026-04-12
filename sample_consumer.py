@@ -20,7 +20,7 @@ if __name__ == '__main__':
         with tibems_session(connection=connection, transacted=False, ack_mode=AckMode.TIBEMS_AUTO_ACK) as session:
 
             # publish message to queue
-            queue = create_destination(name="tmp.q", type=DestinationType.Queue)
+            queue = create_destination(name="tmp.q", dest_type=DestinationType.Queue)
             with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
                 signal.signal(signal.SIGINT, lambda *_: consumer.stop())
                 for msg in consumer:

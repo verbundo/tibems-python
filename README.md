@@ -44,7 +44,7 @@ from tibems import (
     JmsPropertyType, JMS_Property, AckMode, DestinationType,
     tibems_connection, tibems_session, tibems_message,
     create_destination, create_producer, create_consumer,
-    publish_message, ReceivedMessage, ReplyTo,
+    publish_message, async_publish_message, ReceivedMessage, ReplyTo,
 )
 ```
 
@@ -264,6 +264,44 @@ with tibems_connection(...) as connection:
 
 > **Note:** In `CLIENT_ACK` mode, acknowledging one message also acknowledges **all** previously received messages on that session. If you need per-message acknowledgment, use a dedicated session per message or switch to `AUTO_ACK`.
 
+### Async Producer
+
+`async_publish_message` wraps `tibemsMsgProducer_AsyncSend`. EMS hands the send to its internal I/O thread and fires a C callback when the broker acknowledges it. The coroutine suspends (freeing the event loop) until that callback fires, then returns the JMSMessageID.
+
+```python
+import asyncio
+from tibems import (
+    JmsPropertyType, JMS_Property, DestinationType,
+    tibems_connection, tibems_session, tibems_message,
+    create_destination, create_producer, async_publish_message,
+)
+
+async def main():
+    with tibems_connection(url="tcp://host:7222", username="user", password="pass") as connection:
+        with tibems_session(connection=connection) as session:
+            queue = create_destination(name="my.queue", type=DestinationType.Queue)
+            producer = create_producer(session, queue)
+
+            async def send(text, index):
+                with tibems_message(
+                    message_text=text,
+                    jms_props=[JMS_Property(name="msg.index", value=index, type=JmsPropertyType.Integer)],
+                ) as message:
+                    message_id = await async_publish_message(producer, message)
+                    print(f"[{index}] sent, JMSMessageID={message_id}")
+
+            # Send multiple messages concurrently
+            await asyncio.gather(
+                send("Hello 1", 1),
+                send("Hello 2", 2),
+                send("Hello 3", 3),
+            )
+
+asyncio.run(main())
+```
+
+> **Note:** `start_connection=True` is not required for producers (sync or async).
+
 ### Async Consumer
 
 `AsyncTibEMSConsumer` uses `tibemsMsgConsumer_SetMsgListener` so EMS pushes messages via a C callback on its own internal thread. No polling loop is needed — CPU usage is zero while the queue is idle.
@@ -314,7 +352,8 @@ asyncio.run(main())
 |---|---|
 | `create_destination(name, type)` | Create a `Queue` or `Topic` destination. |
 | `create_producer(session, destination)` | Create a message producer for the given destination. |
-| `publish_message(producer, message, expect_reply=False, reply_destination=None, session=None, reply_timeout=None)` | Send a message. Optionally waits for a reply on a temporary queue. |
+| `publish_message(producer, message, expect_reply=False, reply_destination=None, session=None, reply_timeout=None)` | Send a message synchronously. Optionally waits for a reply on a temporary queue. |
+| `async_publish_message(producer, message)` | Send a message asynchronously via `tibemsMsgProducer_AsyncSend`. Returns the JMSMessageID when the broker acknowledges the send. |
 
 ### Enums
 
@@ -403,3 +442,4 @@ Runnable scripts in the [`examples/`](examples/) directory:
 | [`receive_from_queue_client_ack.py`](examples/receive_from_queue_client_ack.py) | Consume with `CLIENT_ACK` — manually acknowledge after processing |
 | [`receive_from_queue_with_selector.py`](examples/receive_from_queue_with_selector.py) | Consume with a JMS selector to filter messages by property values |
 | [`receive_from_queue_async.py`](examples/receive_from_queue_async.py) | Async consumer using `SetMsgListener` callback — push-based, no polling |
+| [`send_to_queue_async_producer.py`](examples/send_to_queue_async_producer.py) | Async producer using `tibemsMsgProducer_AsyncSend` — concurrent sends via `asyncio.gather` |

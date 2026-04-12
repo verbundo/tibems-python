@@ -256,6 +256,20 @@ def create_consumer(session, destination, ack_mode: AckMode, selector: str = Non
 # void fn(tibemsMsgConsumer consumer, tibemsMsg message, void* closure)
 _MsgListenerCallback = CFUNCTYPE(None, c_void_p, c_void_p, c_void_p)
 
+# Callback for tibemsMsgProducer_AsyncSend:
+# void fn(tibemsMsgProducer producer, tibemsMsg message, tibems_status status, void* closure)
+# status == TIBEMS_OK (0) on success; non-zero on failure.
+_AsyncSendCallback = CFUNCTYPE(None, c_void_p, c_void_p, c_int, c_void_p)
+
+ems_lib.tibemsMsgProducer_AsyncSend.argtypes = [c_void_p, c_void_p, _AsyncSendCallback, c_void_p]
+ems_lib.tibemsMsgProducer_AsyncSend.restype  = c_int
+
+# Module-level dict that keeps each CFUNCTYPE wrapper alive until EMS fires the
+# callback.  ctypes does NOT automatically retain Python references to callbacks
+# passed as function arguments, so without this the GC can free the trampoline
+# while EMS still holds a pointer to it — producing a segfault on the EMS thread.
+_pending_async_sends: dict = {}
+
 
 class AsyncTibEMSConsumer:
     """Push-based async consumer using tibemsMsgConsumer_SetMsgListener.
@@ -427,6 +441,47 @@ def publish_message(producer, message, expect_reply: bool = False, reply_destina
         return (message_id, ReceivedMessage(body=body, properties=properties, ack_fn=lambda: None, reply_to=None, message_id=reply_id))
     finally:
         ems_lib.tibemsMsgConsumer_Close(consumer)
+
+async def async_publish_message(producer, message) -> str:
+    """Send a message asynchronously using tibemsMsgProducer_AsyncSend.
+
+    EMS hands the send to its internal I/O thread and returns immediately.
+    This coroutine suspends until the broker calls back (status == 0 → success,
+    non-zero → TibEMSPublishError), then returns the JMSMessageID.
+    """
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[None] = loop.create_future()
+
+    def _on_async_send(prod_handle, msg_handle, status, closure):
+        # Runs on an EMS internal C thread.
+        _pending_async_sends.pop(send_key, None)
+        if not future.done():
+            if status == TIBEMS_OK:
+                loop.call_soon_threadsafe(future.set_result, None)
+            else:
+                loop.call_soon_threadsafe(future.set_exception, TibEMSPublishError(status))
+
+    callback = _AsyncSendCallback(_on_async_send)
+    send_key = id(callback)
+    _pending_async_sends[send_key] = callback  # keep the trampoline alive until EMS fires it
+
+    res = ems_lib.tibemsMsgProducer_AsyncSend(producer, message, callback, None)
+    if res != TIBEMS_OK:
+        _pending_async_sends.pop(send_key, None)
+        raise TibEMSPublishError(res)
+
+    try:
+        await future
+    except Exception:
+        _pending_async_sends.pop(send_key, None)
+        raise
+
+    # Read JMSMessageID from the original handle on the Python thread after
+    # the broker has acknowledged the send.
+    msg_id_ptr = c_char_p()
+    ems_lib.tibemsMsg_GetMessageID(message, byref(msg_id_ptr))
+    return msg_id_ptr.value.decode('utf-8') if msg_id_ptr.value else None
+
 
 def destroy_message(message):
     ems_lib.tibemsMsg_Destroy(message)

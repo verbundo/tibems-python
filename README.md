@@ -1,6 +1,8 @@
 # tibems-python
 
-A Python wrapper for the **TIBCO Enterprise Message Service (EMS)** C API. It uses `ctypes` to call the native `libtibems.so` shared library, exposing Pythonic context managers for connections, sessions, messages, producers, and consumers.
+A Python wrapper for the **TIBCO Enterprise Message Service (EMS)** C API. It uses `ctypes` to call the native `libtibems.so` shared library (tibems.dll on Windows), exposing Pythonic context managers for connections, sessions, messages, producers, and consumers.
+
+Supports both sync and async publishing and consuming.
 
 ## Author
 
@@ -12,7 +14,11 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Prerequisites
 
-Place the TIBCO EMS shared libraries in `tibems/lib/`:
+Tibco EMS shared libraries must be available on machine, where this code runs.
+
+Make sure LD_LIBRARY_PATH (or PATH on Windows) contains the folder with Tibco EMS shared libraries.
+
+Or alternatively, place the TIBCO EMS shared libraries in `tibems/lib/`:
 - `libtibems.so` (required)
 - `libssl.so.3`, `libcrypto.so.3`, `libz.so.1.2.13`, `libjemalloc.so.2` (dependencies)
 
@@ -36,6 +42,7 @@ export LD_LIBRARY_PATH=$PWD/tibems/lib:$LD_LIBRARY_PATH
 - **Message selectors** — SQL-92 selector support on consumer creation
 - **JMSReplyTo handling** — `ReceivedMessage.reply_to` provides a handle usable directly as a producer destination
 - **One-shot helpers** — `queue_publish` and `topic_publish` for fire-and-forget publishing without manual context management
+- **Transactions** — Transacted sessions with `session_commit(session)` and `session_rollback(session)` for atomic consume/produce workflows
 - **Cross-platform** — Loads `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows) automatically
 
 ### Not Currently Supported
@@ -48,7 +55,7 @@ export LD_LIBRARY_PATH=$PWD/tibems/lib:$LD_LIBRARY_PATH
 - **`no_local` on async consumer** — `AsyncTibEMSConsumer` hardcodes `no_local=False` and does not expose the parameter
 - **Message transformers / compression** — `tibemsMsg_SetCompressed` and related APIs are not wrapped
 - **Explicit delivery mode / priority / TTL** — `publish_message` does not expose `deliveryMode`, `priority`, or `timeToLive` overrides (uses producer defaults)
-- **Transactions** — While transacted sessions can be created (`transacted=True`), explicit `commit`/`rollback` helpers are not yet provided
+- **XA transactions** — `tibemsSession_XAResource` and JTA/XA two-phase-commit integration are not wrapped; only local (single-resource) transacted sessions are supported
 - **Connection metadata / client ID** — `tibemsConnection_GetClientID` and `tibemsConnection_SetClientID` are not wrapped
 - **Temporary topics** — `tibemsSession_CreateTemporaryTopic` is not wrapped; only temporary queues are supported for request/reply
 - **Python 3.9 or earlier** — The code uses PEP 604 (`str | None`) and `match/case` (PEP 634), requiring Python 3.10+
@@ -332,6 +339,51 @@ with tibems_connection(...) as connection:
 ```
 
 > **Note:** In `CLIENT_ACK` mode, acknowledging one message also acknowledges **all** previously received messages on that session. If you need per-message acknowledgment, use a dedicated session per message or switch to `AUTO_ACK`.
+
+### Transacted Sessions (Atomic Consume + Produce)
+
+Use `transacted=True` to create a transactional session. Call `session_commit(session)` to atomically acknowledge all received messages and commit all published messages, or `session_rollback(session)` to discard them:
+
+```python
+import signal
+from tibems import (
+    AckMode, DestinationType,
+    tibems_connection, tibems_session, tibems_message,
+    create_destination, create_producer, create_consumer, publish_message,
+    session_commit, session_rollback,
+)
+
+with tibems_connection(...) as connection:
+    # transacted=True enables transactional semantics
+    with tibems_session(connection=connection, transacted=True) as session:
+        queue = create_destination(name="my.queue", dest_type=DestinationType.Queue)
+        producer = create_producer(session, queue)
+
+        with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
+            signal.signal(signal.SIGINT, lambda *_: consumer.stop())
+
+            for msg in consumer:
+                print(f"Received: {msg.body}")
+
+                try:
+                    # process the message (could fail)
+                    process(msg.body)
+
+                    # publish a derived reply message in the same transaction
+                    with tibems_message(message_body=f"Processed: {msg.body}") as reply:
+                        publish_message(producer, message=reply)
+
+                    # commit: the receive-ack and the publish are committed atomically
+                    session_commit(session)
+                    print("  -> committed")
+                except Exception as e:
+                    # rollback: the received message goes back to the queue,
+                    # and no reply is published
+                    print(f"  -> error: {e}, rolling back")
+                    session_rollback(session)
+```
+
+> **Note:** In a transacted session, `acknowledge()` is not needed — the broker acknowledges received messages automatically on `session_commit`. A `session_rollback` returns all received messages to the queue and discards any published messages from the uncommitted transaction.
 
 ### Async Producer
 

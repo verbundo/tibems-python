@@ -8,28 +8,34 @@
 
 from contextlib import contextmanager
 import ctypes
+import ctypes.util
 from ctypes import c_char_p, c_void_p, byref, POINTER, c_int
 from enum import Enum
-import os
-import platform
+import sys
 from typing import Generator
 
 
-# Load the appropriate shared library based on the operating system
-system = platform.system()
-if system == "Windows":
-    ems_lib = ctypes.CDLL("libtibems.dll")
-elif system == "Linux":
-    ems_lib = ctypes.CDLL("libtibems.so")
-elif system == "Darwin":
-    # Try .dylib first, fallback to .so
-    try:
-        ems_lib = ctypes.CDLL("libtibems.dylib")
-    except OSError:
-        ems_lib = ctypes.CDLL("libtibems.so")
-else:
-    # Default to .so for other Unix-like systems
-    ems_lib = ctypes.CDLL("libtibems.so") 
+# ---------------------------------------------------------------------------
+# Load library
+# ---------------------------------------------------------------------------
+
+def _load_library():
+    if sys.platform == "win32":
+        name = "tibems"
+    elif sys.platform == "darwin":
+        name = "tibemsC"
+    else:
+        name = "tibems"
+    path = ctypes.util.find_library(name)
+    if path is None:
+        raise RuntimeError(
+            f"EMS library '{name}' not found. "
+            "Add <EMS_HOME>/bin or <EMS_HOME>/lib to your library path."
+        )
+    return ctypes.CDLL(path)
+
+ems_lib = _load_library()
+
 
 TIBEMS_OK = 0
 TIBEMS_FALSE = 0
@@ -80,6 +86,9 @@ ems_lib.tibemsConnectionFactory_CreateConnection.argtypes = [c_void_p, POINTER(c
 
 ems_lib.tibemsStatus_GetText.argtypes = [c_int]
 ems_lib.tibemsStatus_GetText.restype = c_char_p
+
+ems_lib.tibemsSession_Commit.argtypes = [c_void_p]
+ems_lib.tibemsSession_Rollback.argtypes = [c_void_p]
 
 class DestinationType(int, Enum):
     Queue=0
@@ -196,6 +205,18 @@ def tibems_session(connection: c_void_p, transacted: bool = False, ack_mode: Ack
         yield session
     finally:
         ems_lib.tibemsSession_Close(session)
+
+def session_commit(session_handle: c_void_p):
+    """Commit a transacted session."""
+    res = ems_lib.tibemsSession_Commit(session_handle)
+    if res != TIBEMS_OK:
+        raise TibEMSSessionError(res)
+
+def session_rollback(session_handle: c_void_p):
+    """Rollback a transacted session."""
+    res = ems_lib.tibemsSession_Rollback(session_handle)
+    if res != TIBEMS_OK:
+        raise TibEMSSessionError(res)
 
 def create_destination(name: str, dest_type: DestinationType = DestinationType.Queue) -> c_void_p:
     """Create a JMS destination (queue or topic).

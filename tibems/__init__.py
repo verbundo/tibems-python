@@ -3,6 +3,7 @@ from .message import (
     JmsPropertyType,
     JMS_Property,
     tibems_message,
+    get_message_body,
 )
 from .consumer import (
     TibEMSConsumer,
@@ -17,6 +18,7 @@ from .producer import (
     queue_publish,
     topic_publish,
 )
+from .tibems import session_commit, session_rollback
 
 __all__ = [
     "JmsPropertyType",
@@ -27,6 +29,9 @@ __all__ = [
     "tibems_connection",
     "tibems_session",
     "tibems_message",
+    "get_message_body",
+    "session_commit",
+    "session_rollback",
     "create_destination",
     "create_producer",
     "publish_message",

@@ -21,6 +21,38 @@ Set `LD_LIBRARY_PATH` at runtime:
 export LD_LIBRARY_PATH=$PWD/tibems/lib:$LD_LIBRARY_PATH
 ```
 
+## Features
+
+### Supported
+
+- **Connections** — TCP and SSL (TLS) with server/client certificate support and host verification toggle
+- **Sessions** — Transacted and non-transacted sessions with `AUTO_ACK`, `CLIENT_ACK`, and `DUPS_OK_ACK` modes
+- **Destinations** — Queues, Topics, and Temporary Queues
+- **Producers** — Synchronous (`publish_message`) and asynchronous (`async_publish_message` via `tibemsMsgProducer_AsyncSend`)
+- **Consumers** — Synchronous polling (`TibEMSConsumer`) and async push-based (`AsyncTibEMSConsumer` via `SetMsgListener`)
+- **Message types** — Text messages (`TextMessage`) and Bytes messages (`BytesMessage`)
+- **JMS Properties** — Set and read typed properties (`String`, `Boolean`, `Byte`, `Short`, `Integer`, `Long`, `Float`, `Double`)
+- **Request/Reply** — Publish with `expect_reply=True` using a temporary or explicit reply queue; reply correlation via `JMSReplyTo` and `JMSCorrelationID`
+- **Message selectors** — SQL-92 selector support on consumer creation
+- **JMSReplyTo handling** — `ReceivedMessage.reply_to` provides a handle usable directly as a producer destination
+- **One-shot helpers** — `queue_publish` and `topic_publish` for fire-and-forget publishing without manual context management
+- **Cross-platform** — Loads `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows) automatically
+
+### Not Currently Supported
+
+- **Durable topic subscriptions** — `tibemsSession_CreateDurableSubscriber` is not wrapped
+- **Unsubscribing from durable subscriptions** — `tibemsSession_Unsubscribe` is not wrapped
+- **Browser/peeking** — `QueueBrowser` APIs are not wrapped
+- **MapMessage, StreamMessage, ObjectMessage** — only `TextMessage` and `BytesMessage` are supported
+- **Message listeners on the sync consumer** — `TibEMSConsumer` uses polling; only `AsyncTibEMSConsumer` uses push-based delivery
+- **`no_local` on async consumer** — `AsyncTibEMSConsumer` hardcodes `no_local=False` and does not expose the parameter
+- **Message transformers / compression** — `tibemsMsg_SetCompressed` and related APIs are not wrapped
+- **Explicit delivery mode / priority / TTL** — `publish_message` does not expose `deliveryMode`, `priority`, or `timeToLive` overrides (uses producer defaults)
+- **Transactions** — While transacted sessions can be created (`transacted=True`), explicit `commit`/`rollback` helpers are not yet provided
+- **Connection metadata / client ID** — `tibemsConnection_GetClientID` and `tibemsConnection_SetClientID` are not wrapped
+- **Temporary topics** — `tibemsSession_CreateTemporaryTopic` is not wrapped; only temporary queues are supported for request/reply
+- **Python 3.9 or earlier** — The code uses PEP 604 (`str | None`) and `match/case` (PEP 634), requiring Python 3.10+
+
 ## Configuration
 
 No configuration is needed, it is ready to be used
@@ -83,7 +115,7 @@ with tibems_connection(
         # 4. create a message:
         # specify message body, and if needed, JMS properties
         with tibems_message(
-            message_text="Hello, Queue!",
+            message_body="Hello, Queue!",
             jms_props=[
                 JMS_Property(name="app.name", value="my-app", type=JmsPropertyType.String),
                 JMS_Property(name="retry.count", value=0, type=JmsPropertyType.Integer),
@@ -91,6 +123,43 @@ with tibems_connection(
         ) as message:
             # 5. publish message to a destination
             publish_message(producer, message=message)
+```
+
+### Publish a Bytes Message
+
+Pass `bytes` as `message_body` and supply the `session` (required so EMS can call `tibemsSession_CreateBytesMessage`):
+
+```python
+with tibems_connection(...) as connection:
+    with tibems_session(connection=connection) as session:
+        queue = create_destination(name="my.queue")
+        producer = create_producer(session, queue)
+
+        payload = b'\x00\x01\x02\x03binary payload'
+
+        # session= is required when message_body is bytes
+        with tibems_message(message_body=payload, session=session) as message:
+            message_id, _ = publish_message(producer, message=message)
+            print(f"Sent {len(payload)} bytes, ID: {message_id}")
+```
+
+### Receive Bytes Messages
+
+The consumer auto-detects the message type via `tibemsMsg_GetBodyType`. Use `msg.body_bytes` for bytes messages and `msg.body` for text messages:
+
+```python
+with tibems_connection(..., start_connection=True) as connection:
+    with tibems_session(connection=connection) as session:
+        queue = create_destination(name="my.queue")
+
+        with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
+            signal.signal(signal.SIGINT, lambda *_: consumer.stop())
+
+            for msg in consumer:
+                if msg.body_bytes is not None:
+                    print(f"Bytes message: {len(msg.body_bytes)} bytes — {msg.body_bytes!r}")
+                else:
+                    print(f"Text message: {msg.body}")
 ```
 
 ### Publish with a Reply (Request/Reply Pattern)
@@ -104,7 +173,7 @@ with tibems_connection(...) as connection:
         queue = create_destination(name="request.queue", type=DestinationType.Queue)
         producer = create_producer(session, queue)
 
-        with tibems_message(message_text="Ping") as message:
+        with tibems_message(message_body="Ping") as message:
             # use 'expect_reply=True' to specify, that a reply is expected
             # do not provide 'reply_destination' parameter
             reply = publish_message(
@@ -131,7 +200,7 @@ with tibems_connection(...) as connection:
         queue = create_destination(name="request.queue", type=DestinationType.Queue)
         producer = create_producer(session, queue)
 
-        with tibems_message(message_text="Ping") as message:
+        with tibems_message(message_body="Ping") as message:
             # use 'expect_reply=True' to specify, that a reply is expected
             # use 'reply_destination' parameter to secify a name of reply queue
             reply = publish_message(
@@ -158,7 +227,7 @@ with tibems_connection(...) as connection:
         topic = create_destination(name="my.topic", type=DestinationType.Topic)
         producer = create_producer(session, topic)
 
-        with tibems_message(message_text="Hello, Topic!") as message:
+        with tibems_message(message_body="Hello, Topic!") as message:
             publish_message(producer, message=message)
 ```
 
@@ -190,7 +259,7 @@ with tibems_connection(...) as connection:
                 if msg.reply_to:
                     producer = create_producer(session, msg.reply_to.handle)
                     with tibems_message(
-                        message_text="Reply",
+                        message_body="Reply",
                         jms_props=[],
                         correlation_id=msg.message_id
                     ) as reply:
@@ -284,7 +353,7 @@ async def main():
 
             async def send(text, index):
                 with tibems_message(
-                    message_text=text,
+                    message_body=text,
                     jms_props=[JMS_Property(name="msg.index", value=index, type=JmsPropertyType.Integer)],
                 ) as message:
                     message_id = await async_publish_message(producer, message)
@@ -342,7 +411,7 @@ asyncio.run(main())
 |---|---|
 | `tibems_connection(url, username, password, start_connection=False, server_cert=None, verify_server_cert=True)` | Opens and closes an EMS connection. Handles SSL when URL starts with `ssl:`. |
 | `tibems_session(connection, transacted, ack_mode)` | Creates and closes an EMS session. |
-| `tibems_message(message_text, jms_props=[], correlation_id=None)` | Creates and destroys a text message with optional JMS properties. |
+| `tibems_message(message_body, jms_props=[], correlation_id=None, session=None)` | Creates and destroys a text or bytes message. Pass `bytes` as `message_body` and supply `session` for a bytes message. |
 | `create_consumer(session, destination, ack_mode, selector=None, no_local=False)` | Returns a `TibEMSConsumer` that is iterable (`for msg in consumer`). |
 | `create_async_consumer(session, destination, ack_mode)` | Returns an `AsyncTibEMSConsumer` (async context manager, async iterable). |
 
@@ -369,7 +438,8 @@ Each message yielded from the consumer has:
 
 | Attribute | Description |
 |---|---|
-| `body` | Text content of the message. |
+| `body` | Decoded text content for text messages; empty string for bytes messages. |
+| `body_bytes` | Raw `bytes` payload for bytes messages; `None` for text messages. |
 | `properties` | List of dicts: `{"name": str, "type": str, "value": any}`. Includes custom and standard JMS headers (`JMSMessageID`, `JMSCorrelationID`, `JMSReplyTo`, etc.). |
 | `reply_to` | `ReplyTo` object with a `handle` usable as a producer destination, or `None`. |
 | `message_id` | The `JMSMessageID` string, or `None`. |
@@ -403,7 +473,7 @@ queue_publish(
     ems_username="user",
     ems_password="pass",
     queue_name="my.queue",
-    message_text="Hello",
+    message_body="Hello",
     jms_props=[JMS_Property(name="key", value="val", type=JmsPropertyType.String)]
 )
 
@@ -412,7 +482,7 @@ topic_publish(
     ems_username="user",
     ems_password="pass",
     topic_name="my.topic",
-    message_text="Hello",
+    message_body="Hello",
     jms_props=[]
 )
 ```
@@ -443,3 +513,5 @@ Runnable scripts in the [`examples/`](examples/) directory:
 | [`receive_from_queue_with_selector.py`](examples/receive_from_queue_with_selector.py) | Consume with a JMS selector to filter messages by property values |
 | [`receive_from_queue_async.py`](examples/receive_from_queue_async.py) | Async consumer using `SetMsgListener` callback — push-based, no polling |
 | [`send_to_queue_async_producer.py`](examples/send_to_queue_async_producer.py) | Async producer using `tibemsMsgProducer_AsyncSend` — concurrent sends via `asyncio.gather` |
+| [`send_bytes_to_queue.py`](examples/send_bytes_to_queue.py) | Publish a bytes message using `tibemsSession_CreateBytesMessage` + `tibemsBytesMsg_WriteBytes` |
+| [`receive_bytes_from_queue.py`](examples/receive_bytes_from_queue.py) | Consume messages, auto-detecting bytes vs text via `msg.body_bytes` / `msg.body` |

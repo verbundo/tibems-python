@@ -41,7 +41,7 @@ if __name__ == '__main__':
                         # create a producer targeting the reply-to destination from the request
                         reply_producer = create_producer(session, msg.reply_to.handle)
                         with tibems_message(
-                            message_text=f"Reply to: {msg.body}",
+                            message_body=f"Reply to: {msg.body}",
                             jms_props=[],
                             correlation_id=msg.message_id,  # correlate reply to original request
                         ) as reply:

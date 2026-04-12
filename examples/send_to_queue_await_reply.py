@@ -33,7 +33,7 @@ if __name__ == '__main__':
             producer = create_producer(session, queue)
 
             with tibems_message(
-                message_text="Request message",
+                message_body="Request message",
                 jms_props=[
                     JMS_Property(name="custom.prop", value="some-value", type=JmsPropertyType.String),
                 ]

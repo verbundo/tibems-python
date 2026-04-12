@@ -39,7 +39,7 @@ async def main():
             # Each send is a separate coroutine suspended until the broker ACKs.
             async def send(text, index):
                 with tibems_message(
-                    message_text=text,
+                    message_body=text,
                     jms_props=[
                         JMS_Property(name="msg.index", value=index, type=JmsPropertyType.Integer),
                     ],

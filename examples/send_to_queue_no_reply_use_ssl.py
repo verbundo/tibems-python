@@ -37,7 +37,7 @@ if __name__ == '__main__':
 
             # create a message with some custom JMS properties
             with tibems_message(
-                message_text="Test message",
+                message_body="Test message",
                 jms_props=[
                     JMS_Property(name="custom.prop", value="tmp.q", type=JmsPropertyType.String),
                     JMS_Property(name="custom.boolean.prop", value=False, type=JmsPropertyType.Boolean),

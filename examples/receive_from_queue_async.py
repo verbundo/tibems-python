@@ -50,7 +50,7 @@ async def main():
                     if msg.reply_to:
                         print(f"Reply-To handle available, sending reply")
                         reply_producer = create_producer(session, msg.reply_to.handle)
-                        with tibems_message(message_text="Reply", jms_props=[], correlation_id=msg.message_id) as reply:
+                        with tibems_message(message_body="Reply", jms_props=[], correlation_id=msg.message_id) as reply:
                             reply_id, _ = publish_message(reply_producer, reply)
                             print(f"Reply sent, message ID: {reply_id}")
 

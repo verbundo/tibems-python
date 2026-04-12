@@ -32,7 +32,7 @@ if __name__ == '__main__':
                     if msg.reply_to:
                         print(f"Reply-To handle available: {msg.reply_to}")
                         producer = create_producer(session, msg.reply_to.handle)
-                        with tibems_message(message_text="Reply", jms_props=[], correlation_id=msg.message_id) as reply:
+                        with tibems_message(message_body="Reply", jms_props=[], correlation_id=msg.message_id) as reply:
                             reply_id, _ = publish_message(producer, reply)
 
                     # msg.acknowledge() is required here when session uses CLIENT_ACK mode

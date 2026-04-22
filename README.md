@@ -43,12 +43,12 @@ export LD_LIBRARY_PATH=$PWD/tibems/lib:$LD_LIBRARY_PATH
 - **JMSReplyTo handling** — `ReceivedMessage.reply_to` provides a handle usable directly as a producer destination
 - **One-shot helpers** — `queue_publish` and `topic_publish` for fire-and-forget publishing without manual context management
 - **Transactions** — Transacted sessions with `session_commit(session)` and `session_rollback(session)` for atomic consume/produce workflows
+- **Durable topic subscriptions** — sync (`create_durable_subscriber`) and async push-based (`create_async_durable_subscriber`); delete subscriptions with `unsubscribe`
+- **Connection event listener** — `exception_listener` callback on `tibems_connection` fires on connection loss, FT reconnect, or cluster failover
+- **Reconnectability** — retry loop pattern with automatic connection/session/consumer rebuild on disconnect; see [`reconnect_and_consume.py`](examples/reconnect_and_consume.py)
 - **Cross-platform** — Loads `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows) automatically
 
 ### Not Currently Supported
-
-- **Durable topic subscriptions** — `tibemsSession_CreateDurableSubscriber` is not wrapped
-- **Unsubscribing from durable subscriptions** — `tibemsSession_Unsubscribe` is not wrapped
 - **Browser/peeking** — `QueueBrowser` APIs are not wrapped
 - **MapMessage, StreamMessage, ObjectMessage** — only `TextMessage` and `BytesMessage` are supported
 - **Message listeners on the sync consumer** — `TibEMSConsumer` uses polling; only `AsyncTibEMSConsumer` uses push-based delivery
@@ -275,6 +275,114 @@ with tibems_connection(...) as connection:
                 # msg.acknowledge()  # only needed when using CLIENT_ACK mode
 ```
 
+### Connection Event Listener
+
+`exception_listener` is called by EMS on its internal thread whenever the connection is lost, an FT reconnect occurs, or the client fails over to a different cluster node. Use it to log events or signal your consumer to stop so you can reconnect.
+
+```python
+import threading
+from tibems import tibems_connection, tibems_session, create_destination, create_consumer, AckMode
+
+connection_lost = threading.Event()
+
+def on_exception(event_text: str) -> None:
+    # Runs on an EMS internal thread — keep it short and thread-safe.
+    print(f"Connection event: {event_text}")
+    connection_lost.set()
+
+with tibems_connection(
+    url="tcp://host:7222",
+    username="user",
+    password="pass",
+    start_connection=True,
+    exception_listener=on_exception,
+) as connection:
+    with tibems_session(connection=connection) as session:
+        queue = create_destination(name="my.queue")
+        with create_consumer(session, queue, ack_mode=AckMode.TIBEMS_AUTO_ACK) as consumer:
+            for msg in consumer:
+                print(f"Received: {msg.body}")
+```
+
+See [`reconnect_and_consume.py`](examples/reconnect_and_consume.py) for a full retry loop that recreates the connection and resumes consuming after a disconnection.
+
+### Durable Topic Subscription
+
+A durable subscriber retains messages published to the topic while it is offline. EMS identifies the subscription by the combination of the connection's `client_id` and the `subscriber_name`.
+
+```python
+import signal
+from tibems import (
+    AckMode, DestinationType,
+    tibems_connection, tibems_session,
+    create_destination, create_durable_subscriber,
+)
+
+with tibems_connection(
+    url="tcp://host:7222",
+    username="user",
+    password="pass",
+    start_connection=True,
+    client_id="my-app-client",   # required for durable subscriptions
+) as connection:
+    with tibems_session(connection=connection) as session:
+        topic = create_destination(name="my.topic", dest_type=DestinationType.Topic)
+
+        with create_durable_subscriber(
+            session, topic, "my-durable-sub", AckMode.TIBEMS_AUTO_ACK
+        ) as sub:
+            signal.signal(signal.SIGINT, lambda *_: sub.stop())
+
+            for msg in sub:
+                print(f"Received: {msg.body}")
+```
+
+### Async Durable Topic Subscription
+
+Combines durability with push-based, zero-polling delivery via `tibemsMsgConsumer_SetMsgListener`:
+
+```python
+import asyncio
+import signal
+from tibems import (
+    AckMode, DestinationType,
+    tibems_connection, tibems_session,
+    create_destination, create_async_durable_subscriber,
+)
+
+async def main():
+    with tibems_connection(
+        url="tcp://host:7222",
+        username="user",
+        password="pass",
+        start_connection=True,
+        client_id="my-app-client",
+    ) as connection:
+        with tibems_session(connection=connection) as session:
+            topic = create_destination(name="my.topic", dest_type=DestinationType.Topic)
+
+            async with create_async_durable_subscriber(
+                session, topic, "my-durable-sub", AckMode.TIBEMS_AUTO_ACK
+            ) as sub:
+                loop = asyncio.get_running_loop()
+                loop.add_signal_handler(signal.SIGINT, sub.stop)
+
+                async for msg in sub:
+                    print(f"Received: {msg.body}")
+
+asyncio.run(main())
+```
+
+To permanently delete the subscription (and discard any retained messages):
+
+```python
+from tibems import tibems_connection, tibems_session, unsubscribe
+
+with tibems_connection(url=..., username=..., password=..., client_id="my-app-client") as connection:
+    with tibems_session(connection=connection) as session:
+        unsubscribe(session, "my-durable-sub")
+```
+
 ### Consume from a Topic
 
 ```python
@@ -461,11 +569,13 @@ asyncio.run(main())
 
 | Function | Description |
 |---|---|
-| `tibems_connection(url, username, password, start_connection=False, server_cert=None, verify_server_cert=True)` | Opens and closes an EMS connection. Handles SSL when URL starts with `ssl:`. |
+| `tibems_connection(url, username, password, start_connection=False, server_cert=None, verify_server_cert=True, client_id=None, exception_listener=None)` | Opens and closes an EMS connection. Handles SSL when URL starts with `ssl:`. Pass `client_id` for durable subscriptions; `exception_listener` to react to connection events. |
 | `tibems_session(connection, transacted, ack_mode)` | Creates and closes an EMS session. |
 | `tibems_message(message_body, jms_props=[], correlation_id=None, session=None)` | Creates and destroys a text or bytes message. Pass `bytes` as `message_body` and supply `session` for a bytes message. |
 | `create_consumer(session, destination, ack_mode, selector=None, no_local=False)` | Returns a `TibEMSConsumer` that is iterable (`for msg in consumer`). |
 | `create_async_consumer(session, destination, ack_mode)` | Returns an `AsyncTibEMSConsumer` (async context manager, async iterable). |
+| `create_durable_subscriber(session, topic, subscriber_name, ack_mode, selector=None, no_local=False)` | Returns a `DurableSubscriber` context manager / iterator. Requires `client_id` on the connection. |
+| `create_async_durable_subscriber(session, topic, subscriber_name, ack_mode, selector=None, no_local=False)` | Returns an `AsyncDurableSubscriber` (async context manager, async iterable). Push-based via `SetMsgListener`. |
 
 ### Core Functions
 
@@ -475,6 +585,7 @@ asyncio.run(main())
 | `create_producer(session, destination)` | Create a message producer for the given destination. |
 | `publish_message(producer, message, expect_reply=False, reply_destination=None, session=None, reply_timeout=None)` | Send a message synchronously. Optionally waits for a reply on a temporary queue. |
 | `async_publish_message(producer, message)` | Send a message asynchronously via `tibemsMsgProducer_AsyncSend`. Returns the JMSMessageID when the broker acknowledges the send. |
+| `unsubscribe(session, subscriber_name)` | Delete a named durable subscription from EMS. The subscriber must be closed first. |
 
 ### Enums
 
@@ -560,6 +671,9 @@ Runnable scripts in the [`examples/`](examples/) directory:
 | [`publish_to_topic.py`](examples/publish_to_topic.py) | Publish to a topic over TCP |
 | [`receive_from_queue.py`](examples/receive_from_queue.py) | Consume messages from a queue |
 | [`receive_from_topic.py`](examples/receive_from_topic.py) | Subscribe to a topic and consume messages |
+| [`reconnect_and_consume.py`](examples/reconnect_and_consume.py) | Consume from a queue with automatic reconnection on connection loss |
+| [`receive_from_topic_durable.py`](examples/receive_from_topic_durable.py) | Durable topic subscriber — messages retained by EMS while offline |
+| [`receive_from_topic_durable_async.py`](examples/receive_from_topic_durable_async.py) | Async durable topic subscriber — push-based delivery, messages retained while offline |
 | [`receive_from_queue_send_reply.py`](examples/receive_from_queue_send_reply.py) | Consume messages and send a correlated reply to `JMSReplyTo` (request/reply responder side) |
 | [`receive_from_queue_client_ack.py`](examples/receive_from_queue_client_ack.py) | Consume with `CLIENT_ACK` — manually acknowledge after processing |
 | [`receive_from_queue_with_selector.py`](examples/receive_from_queue_with_selector.py) | Consume with a JMS selector to filter messages by property values |

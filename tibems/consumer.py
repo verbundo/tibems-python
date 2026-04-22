@@ -166,10 +166,12 @@ class AsyncTibEMSConsumer:
                 print(msg.body)
     """
 
-    def __init__(self, session, destination, ack_mode: AckMode):
+    def __init__(self, session, destination, ack_mode: AckMode, selector: str = None, no_local: bool = False):
         self._session = session
         self._destination = destination
         self._ack_mode = ack_mode
+        self._selector = selector
+        self._no_local = no_local
         self._consumer = None
         self._callback = None  # must stay alive for the lifetime of the consumer
         self._msg_queue: asyncio.Queue | None = None
@@ -180,9 +182,10 @@ class AsyncTibEMSConsumer:
         self._msg_queue = asyncio.Queue()
 
         self._consumer = c_void_p()
+        selector_bytes = self._selector.encode() if self._selector else None
         res = ems_lib.tibemsSession_CreateConsumer(
             self._session, byref(self._consumer),
-            self._destination, c_char_p(None), c_bool(False)
+            self._destination, c_char_p(selector_bytes), c_bool(self._no_local)
         )
         if res != TIBEMS_OK:
             raise TibEMSCreateConsumerError(res)
@@ -259,5 +262,5 @@ class AsyncTibEMSConsumer:
         return msg
 
 
-def create_async_consumer(session, destination, ack_mode: AckMode) -> AsyncTibEMSConsumer:
-    return AsyncTibEMSConsumer(session, destination, ack_mode)
+def create_async_consumer(session, destination, ack_mode: AckMode, selector: str = None, no_local: bool = False) -> AsyncTibEMSConsumer:
+    return AsyncTibEMSConsumer(session, destination, ack_mode, selector, no_local)

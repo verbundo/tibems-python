@@ -19,6 +19,14 @@ from .producer import (
     topic_publish,
 )
 from .tibems import session_commit, session_rollback
+from .durable_subscriber import (
+    DurableSubscriber,
+    AsyncDurableSubscriber,
+    TibEMSUnsubscribeError,
+    create_durable_subscriber,
+    create_async_durable_subscriber,
+    unsubscribe,
+)
 
 __all__ = [
     "JmsPropertyType",
@@ -42,6 +50,12 @@ __all__ = [
     "create_async_consumer",
     "TibEMSConsumer",
     "AsyncTibEMSConsumer",
+    "DurableSubscriber",
+    "AsyncDurableSubscriber",
+    "TibEMSUnsubscribeError",
+    "create_async_durable_subscriber",
     "ReceivedMessage",
     "ReplyTo",
+    "create_durable_subscriber",
+    "unsubscribe",
 ]

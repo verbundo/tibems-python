@@ -9,10 +9,10 @@
 from contextlib import contextmanager
 import ctypes
 import ctypes.util
-from ctypes import c_char_p, c_void_p, byref, POINTER, c_int
+from ctypes import CFUNCTYPE, c_char_p, c_void_p, byref, POINTER, c_int
 from enum import Enum
 import sys
-from typing import Generator
+from typing import Callable, Generator
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +40,10 @@ ems_lib = _load_library()
 TIBEMS_OK = 0
 TIBEMS_FALSE = 0
 TIBEMS_TRUE = 1
+
+# C callback type for tibemsConnection_SetExceptionListener:
+# void fn(tibemsConnection conn, tibemsMsg errorMsg, void* closure)
+_ExceptionListenerCallback = CFUNCTYPE(None, c_void_p, c_void_p, c_void_p)
 
 __all__ = [
     "ems_lib",
@@ -109,6 +113,8 @@ def tibems_connection(
     client_cert: str | None = None,
     private_key: str | None = None,
     verify_server_cert: bool = True,
+    client_id: str | None = None,
+    exception_listener: Callable[[str], None] | None = None,
 ) -> "Generator[c_void_p, None, None]":
     """Open a connection to the TIBCO EMS server.
 
@@ -123,6 +129,13 @@ def tibems_connection(
         private_key: Unused placeholder — the C API expects the key inside the
             PKCS#12 file referenced by ``client_cert``.
         verify_server_cert: Whether to verify the server's certificate chain.
+        client_id: Optional JMS client identifier. Required when using durable
+            topic subscriptions — EMS uses this ID (combined with the
+            subscription name) to persist subscription state across reconnects.
+        exception_listener: Optional callable invoked by EMS on connection
+            events: loss, FT reconnect, or cluster failover. Receives a single
+            ``str`` describing the event. Called on an EMS internal thread —
+            keep the implementation short and thread-safe.
 
     Yields:
         A ``c_void_p`` handle to the opened connection.
@@ -166,6 +179,22 @@ def tibems_connection(
         if res != TIBEMS_OK:
             raise TibEMSConnectionError(res)
         connection_opened = True
+
+        if client_id:
+            ems_lib.tibemsConnection_SetClientID(connection, bytes(client_id, "utf-8"))
+
+        _exception_cb = None  # kept alive for the duration of the connection
+        if exception_listener is not None:
+            def _c_exception_cb(conn, error_msg, closure):
+                try:
+                    text_ptr = c_char_p()
+                    ems_lib.tibemsTextMsg_GetText(c_void_p(error_msg), byref(text_ptr))
+                    text = text_ptr.value.decode("utf-8") if text_ptr.value else "Connection exception"
+                    exception_listener(text)
+                except Exception:
+                    pass
+            _exception_cb = _ExceptionListenerCallback(_c_exception_cb)
+            ems_lib.tibemsConnection_SetExceptionListener(connection, _exception_cb, None)
 
         if start_connection:
             ems_lib.tibemsConnection_Start(connection)
